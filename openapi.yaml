@@ -1,0 +1,338 @@
+openapi: 3.0.3
+info:
+  title: Config Server API
+  description: >
+    A minimal HTTP key-value configuration store, protected by a static API
+    key and persisted to disk with AES-256-GCM encryption at rest.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:4000
+    description: Local development
+
+tags:
+  - name: health
+    description: Unauthenticated liveness check
+  - name: config
+    description: Read/write individual config keys
+  - name: admin
+    description: Bulk/management operations over the whole store
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Health check
+      description: Does not require an API key. Intended for load balancers/orchestrators.
+      security: []
+      responses:
+        '200':
+          description: Server is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                required: [status]
+
+  /config:
+    get:
+      tags: [config]
+      operationId: getAllConfig
+      summary: Get all config keys
+      responses:
+        '200':
+          description: The entire config store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigStore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /config/{key}:
+    parameters:
+      - $ref: '#/components/parameters/ConfigKey'
+    get:
+      tags: [config]
+      operationId: getConfigKey
+      summary: Get a single config key
+      responses:
+        '200':
+          description: The key was found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyValue'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [config]
+      operationId: putConfigKey
+      summary: Create or update a config key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                value:
+                  description: Any JSON value to store under this key.
+              required: [value]
+            examples:
+              string:
+                value: { value: "hello-world" }
+              object:
+                value: { value: { nested: true, n: 42 } }
+      responses:
+        '200':
+          description: The key was set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyValue'
+        '400':
+          description: Missing "value" in body, or an unsafe key name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [config]
+      operationId: deleteConfigKey
+      summary: Delete a config key
+      responses:
+        '200':
+          description: The key was deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: string
+                required: [deleted]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/stats:
+    get:
+      tags: [admin]
+      operationId: getAdminStats
+      summary: Operational stats about the running server/store
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keyCount:
+                    type: integer
+                    example: 3
+                  uptimeSeconds:
+                    type: integer
+                    example: 128
+                  dataFile:
+                    type: string
+                    example: /app/config-store.enc
+                  dataFileBytes:
+                    type: integer
+                    nullable: true
+                    example: 512
+                required: [keyCount, uptimeSeconds, dataFile, dataFileBytes]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/export:
+    get:
+      tags: [admin]
+      operationId: getAdminExport
+      summary: Full dump of the config store
+      description: Same shape as `GET /config`. Intended for backups/migration.
+      responses:
+        '200':
+          description: The entire config store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigStore'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/import:
+    post:
+      tags: [admin]
+      operationId: postAdminImport
+      summary: Bulk load keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  $ref: '#/components/schemas/ConfigStore'
+                mode:
+                  type: string
+                  enum: [merge, replace]
+                  default: merge
+                  description: >
+                    "merge" keeps existing keys not present in `data`.
+                    "replace" wipes the store and replaces it with exactly `data`.
+              required: [data]
+            examples:
+              merge:
+                value: { data: { featureFlag: true }, mode: merge }
+              replace:
+                value: { data: { onlyKey: "onlyValue" }, mode: replace }
+      responses:
+        '200':
+          description: Import applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported:
+                    type: integer
+                    example: 1
+                  mode:
+                    type: string
+                    enum: [merge, replace]
+                required: [imported, mode]
+        '400':
+          description: Missing/invalid "data", or it contains an unsafe key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/clear:
+    delete:
+      tags: [admin]
+      operationId: deleteAdminClear
+      summary: Wipe every config key
+      responses:
+        '200':
+          description: Store cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared:
+                    type: integer
+                    description: Number of keys removed
+                    example: 5
+                required: [cleared]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/reload:
+    post:
+      tags: [admin]
+      operationId: postAdminReload
+      summary: Reload the store from disk
+      description: >
+        Discards in-memory state and re-reads the encrypted data file.
+        Useful if config-store.enc was modified out-of-band (e.g. restored
+        from a backup) while the server was running.
+      responses:
+        '200':
+          description: Reloaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reloaded:
+                    type: boolean
+                    example: true
+                  keyCount:
+                    type: integer
+                    example: 3
+                required: [reloaded, keyCount]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Value of the CONFIG_API_KEY environment variable.
+
+  parameters:
+    ConfigKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+      description: >
+        The config key name. Reserved names (__proto__, constructor,
+        prototype) are rejected with 400 to prevent prototype pollution.
+
+  schemas:
+    ConfigStore:
+      type: object
+      description: A map of arbitrary key names to arbitrary JSON values.
+      additionalProperties: {}
+      example:
+        featureFlag: true
+        retryLimit: 3
+    KeyValue:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          description: Any JSON value.
+      required: [key, value]
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Invalid or missing API key
+    NotFound:
+      description: Key not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Key 'foo' not found"

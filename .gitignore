@@ -1,0 +1,4 @@
+node_modules/
+.env
+config-store.enc
+*.log
