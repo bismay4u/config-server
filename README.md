@@ -191,25 +191,6 @@ npm test                # runs both suites (reads CONFIG_API_KEY from .env)
 
 Override the target with `BASE_URL` and/or `CONFIG_API_KEY` env vars if needed.
 
-## Known Limitations / Not Yet Implemented
-
-The server is functional for a single trusted client but is missing a few
-things you'd likely want before production use:
-
-- **No concurrency/multi-instance support** — the store is a single in-memory
-  object with no file locking; running multiple instances against the same
-  data file, or handling concurrent writes, can cause lost updates.
-- **No input validation** — no size/type limits on keys or values.
-- **No HTTPS/TLS** — expects to sit behind a reverse proxy (e.g. nginx, Caddy)
-  for encryption in transit.
-- **No automated CI** — the curl test suite is manual/local only; there's no
-  workflow wiring it into a pipeline.
-- **No structured audit trail** — request logging is basic (method/path/status
-  to stdout), with no record of *who* (beyond "held a valid API key") changed
-  a given key.
-- **No separate admin privilege tier** — `/admin/*` (including destructive
-  `DELETE /admin/clear`) is gated by the same `CONFIG_API_KEY` as regular
-  config reads/writes, not a distinct admin credential or role.
 
 ## License
 
